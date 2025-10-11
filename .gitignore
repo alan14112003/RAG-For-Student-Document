@@ -1,0 +1,28 @@
+# OS-specific junk
+.DS_Store
+Thumbs.db
+
+# Python caches and tooling artefacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# IDE/project settings
+.idea/
+.vscode/
+
+# Local environment & secrets
+.env.local
+.env.*.local
+.env
+
+# Uploaded data
+data/uploads/

@@ -1,21 +1,20 @@
 version: "3.9"
 
 services:
-  mysql:
-    image: mysql:8.4
-    container_name: rag-mysql
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-postgres
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: rag_service
-      MYSQL_USER: rag_user
-      MYSQL_PASSWORD: rag_pass
+      POSTGRES_USER: rag_user
+      POSTGRES_PASSWORD: rag_pass
+      POSTGRES_DB: rag_service
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD-SHELL", "pg_isready -U rag_user -d rag_service"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -57,7 +56,7 @@ services:
       - ollama_data:/root/.ollama
 
 volumes:
-  mysql_data:
+  postgres_data:
   qdrant_data:
   minio_data:
   ollama_data:

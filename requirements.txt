@@ -1,0 +1,36 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+python-multipart
+
+# Database
+sqlalchemy[asyncio]
+asyncpg
+alembic
+
+# Authentication
+passlib[bcrypt]
+python-jose[cryptography]
+bcrypt
+
+# RAG & Vector Store
+langchain
+langchain-core
+langchain-community
+langchain-ollama
+qdrant-client
+
+# Document Processing
+pypdf
+python-docx
+unstructured
+python-magic
+
+# Object Storage (MinIO)
+minio
+
+# Utilities
+python-dotenv
+aiofiles

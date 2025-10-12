@@ -7,7 +7,7 @@ from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, VectorParams, Filter as QdrantFilter
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +105,13 @@ class QdrantStorage:
         self,
         query: str,
         k: int = 5,
-        filter: Optional[Dict[str, Any]] = None,
+        filter: Optional[QdrantFilter] = None,
     ) -> List[Document]:
         if not query:
             raise ValueError("Query must not be empty.")
 
         vectorstore = self._load_vectorstore()
+        logger.info('vectorstore', vectorstore)
         if filter:
             results = await vectorstore.asimilarity_search(query, k=k, filter=filter)
         else:
@@ -122,14 +123,61 @@ class QdrantStorage:
         self,
         query: str,
         k: int = 5,
+        filter: Optional[QdrantFilter] = None,
     ) -> List[Tuple[Document, float]]:
         if not query:
             raise ValueError("Query must not be empty.")
 
         vectorstore = self._load_vectorstore()
-        results = await vectorstore.asimilarity_search_with_score(query, k=k)
+        if filter:
+            results = await vectorstore.asimilarity_search_with_score(query, k=k, filter=filter)
+        else:
+            results = await vectorstore.asimilarity_search_with_score(query, k=k)
         logger.debug("Search with score returned %d results for query='%s'", len(results), query)
         return results
+
+    async def delete_by_filter(self, document_id: str) -> int:
+        """
+        Xóa các documents dựa trên filter.
+        Trả về số lượng documents đã xóa.
+        """
+        if not self.collection_exists():
+            logger.warning("Collection '%s' does not exist. Skip deletion.", self.collection_name)
+            return 0
+
+        try:
+            # Scroll để lấy danh sách point IDs cần xóa
+            points, _ = self.client.scroll(
+                collection_name=self.collection_name,
+                with_payload=True,
+                with_vectors=False,
+                limit=10000,
+            )
+            
+            if not points:
+                logger.info("No points found matching filter in collection '%s'", self.collection_name)
+                return 0
+            
+            logger.info("Found %d points matching filter in collection '%s'", len(points), self.collection_name)
+            point_ids = []
+
+            for i, point in enumerate(points, 1):
+                point_id = point.payload.get("metadata").get("document_id")
+                if point_id == document_id:
+                    point_ids.append(point.id)
+            
+            # Xóa points
+            self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=point_ids,
+            )
+            
+            logger.info("Deleted %d points from collection '%s'", len(point_ids), self.collection_name)
+            return len(point_ids)
+            
+        except Exception as exc:
+            logger.exception("Failed to delete points by filter in collection '%s'", self.collection_name)
+            raise
 
     def get_collection_info(self) -> Dict[str, Any]:
         if not self.collection_exists():

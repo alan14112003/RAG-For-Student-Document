@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+import logging
+import os
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMResponse:
+    """Response từ LLM"""
+    answer: str
+    model: str
+    prompt_tokens: Optional[int] = None
+    completion_tokens: Optional[int] = None
+
+
+class LLMService:
+    """Service để tương tác với Ollama LLM models"""
+
+    DEFAULT_SYSTEM_PROMPT = """Bạn là một trợ lý AI thông minh và hữu ích. Nhiệm vụ của bạn là trả lời câu hỏi dựa trên ngữ cảnh được cung cấp.
+
+Hướng dẫn:
+1. Chỉ sử dụng thông tin từ ngữ cảnh được cung cấp để trả lời
+2. ***Nếu câu trả lời không có trong ngữ cảnh, hãy nói rõ ràng rằng bạn không tìm thấy thông tin***
+3. Trích dẫn nguồn khi có thể (ví dụ: "Theo tài liệu X...")
+4. Trả lời bằng tiếng Việt một cách rõ ràng và mạch lạc
+5. Nếu có nhiều nguồn cung cấp thông tin khác nhau, hãy tổng hợp chúng
+6. ***Đừng bịa đặt thông tin không có trong ngữ cảnh***"""
+
+    RAG_PROMPT_TEMPLATE = """Ngữ cảnh từ tài liệu:
+{context}
+
+Câu hỏi: {question}
+
+Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh không chứa thông tin cần thiết, hãy nói rõ điều đó."""
+
+    def __init__(
+        self,
+        model: str = "llama3",
+        base_url: Optional[str] = None,
+        temperature: float = 0.1,
+        timeout: int = 120,
+    ) -> None:
+        """
+        Khởi tạo LLM Service
+        
+        Args:
+            model: Tên model Ollama (mặc định: llama3)
+            base_url: URL của Ollama server
+            temperature: Temperature cho generation (0.0 - 1.0)
+            timeout: Timeout cho requests (giây)
+        """
+        self.model = model
+        self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.temperature = temperature
+        self.timeout = timeout
+
+        # Khởi tạo LLM
+        self._llm = ChatOllama(
+            model=self.model,
+            base_url=self.base_url,
+            temperature=self.temperature,
+            timeout=self.timeout,
+        )
+
+        # Khởi tạo prompt template
+        self._rag_prompt = ChatPromptTemplate.from_messages([
+            ("system", self.DEFAULT_SYSTEM_PROMPT),
+            ("human", self.RAG_PROMPT_TEMPLATE),
+        ])
+
+        # Khởi tạo chain
+        self._rag_chain = self._rag_prompt | self._llm | StrOutputParser()
+
+        logger.info(
+            f"LLMService initialized with model={self.model}, "
+            f"base_url={self.base_url}, temperature={self.temperature}"
+        )
+
+    def answer_with_context(
+        self,
+        question: str,
+        context: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> LLMResponse:
+        """
+        Trả lời câu hỏi dựa trên context được cung cấp
+        
+        Args:
+            question: Câu hỏi của người dùng
+            context: Ngữ cảnh từ RAG
+            temperature: Override temperature mặc định
+            max_tokens: Giới hạn số tokens trong response
+            
+        Returns:
+            LLMResponse với câu trả lời
+        """
+        if not question or not question.strip():
+            raise ValueError("Question must not be empty")
+
+        if not context or not context.strip():
+            logger.warning("Empty context provided, answering without context")
+            context = "Không có thông tin liên quan được tìm thấy trong tài liệu."
+
+        try:
+            # Override temperature nếu được cung cấp
+            if temperature is not None:
+                original_temp = self._llm.temperature
+                self._llm.temperature = temperature
+
+            # Override max_tokens nếu được cung cấp
+            if max_tokens is not None:
+                self._llm.num_predict = max_tokens
+
+            logger.info(f"Generating answer for question: '{question[:100]}...'")
+            logger.debug(f"Context length: {len(context)} characters")
+
+            # Invoke chain
+            answer = self._rag_chain.invoke({
+                "context": context,
+                "question": question,
+            })
+
+            logger.info("Answer generated successfully")
+
+            # Restore original temperature
+            if temperature is not None:
+                self._llm.temperature = original_temp
+
+            return LLMResponse(
+                answer=answer.strip(),
+                model=self.model,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to generate answer: {str(e)}", exc_info=True)
+            raise
+
+    def answer_with_sources(
+        self,
+        question: str,
+        sources: List[Dict[str, Any]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> LLMResponse:
+        """
+        Trả lời câu hỏi dựa trên danh sách sources
+        
+        Args:
+            question: Câu hỏi của người dùng
+            sources: List các chunks với metadata
+            temperature: Override temperature
+            max_tokens: Giới hạn tokens
+            
+        Returns:
+            LLMResponse với câu trả lời
+        """
+        if not sources:
+            context = "Không tìm thấy thông tin liên quan trong tài liệu."
+        else:
+            # Format context từ sources
+            context_parts = []
+            for idx, source in enumerate(sources, 1):
+                file_name = source.get("file_name", "Unknown")
+                content = source.get("content", "")
+                score = source.get("score", 0.0)
+                
+                context_parts.append(
+                    f"[Nguồn {idx} - {file_name} (độ liên quan: {score:.2f})]\n{content}"
+                )
+            
+            context = "\n\n---\n\n".join(context_parts)
+
+        return self.answer_with_context(
+            question=question,
+            context=context,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+    def generate(
+        self,
+        prompt: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        """
+        Generate text từ prompt đơn giản (không dùng RAG)
+        
+        Args:
+            prompt: Prompt text
+            temperature: Override temperature
+            max_tokens: Giới hạn tokens
+            
+        Returns:
+            Generated text
+        """
+        try:
+            if temperature is not None:
+                original_temp = self._llm.temperature
+                self._llm.temperature = temperature
+
+            if max_tokens is not None:
+                self._llm.num_predict = max_tokens
+
+            response = self._llm.invoke(prompt)
+            
+            if temperature is not None:
+                self._llm.temperature = original_temp
+
+            return response.content.strip()
+
+        except Exception as e:
+            logger.error(f"Failed to generate text: {str(e)}", exc_info=True)
+            raise
+
+    def set_system_prompt(self, system_prompt: str) -> None:
+        """
+        Cập nhật system prompt
+        
+        Args:
+            system_prompt: System prompt mới
+        """
+        self._rag_prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", self.RAG_PROMPT_TEMPLATE),
+        ])
+        self._rag_chain = self._rag_prompt | self._llm | StrOutputParser()
+        logger.info("System prompt updated")
+
+    def get_available_models(self) -> List[str]:
+        """
+        Lấy danh sách models có sẵn từ Ollama
+        
+        Returns:
+            List tên models
+        """
+        try:
+            import requests
+            response = requests.get(f"{self.base_url}/api/tags")
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            return [model["name"] for model in models]
+        except Exception as e:
+            logger.error(f"Failed to fetch available models: {str(e)}")
+            return []

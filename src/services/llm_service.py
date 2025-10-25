@@ -5,7 +5,7 @@ import os
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
@@ -22,7 +22,7 @@ class LLMResponse:
 
 
 class LLMService:
-    """Service để tương tác với Ollama LLM models"""
+    """Service để tương tác với Gemini LLM models via OpenAI compatibility"""
 
     DEFAULT_SYSTEM_PROMPT = """Bạn là một trợ lý AI thông minh và hữu ích. Nhiệm vụ của bạn là trả lời câu hỏi dựa trên ngữ cảnh được cung cấp.
 
@@ -43,31 +43,46 @@ Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh k
 
     def __init__(
         self,
-        model: str = "llama3",
+        model: str = "gemini-2.0-flash",
         base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
         temperature: float = 0.1,
         timeout: int = 120,
+        max_tokens: Optional[int] = None,
     ) -> None:
         """
         Khởi tạo LLM Service
-        
+
         Args:
-            model: Tên model Ollama (mặc định: llama3)
-            base_url: URL của Ollama server
-            temperature: Temperature cho generation (0.0 - 1.0)
-            timeout: Timeout cho requests (giây)
+        model: Tên model Gemini (mặc định: gemini-2.0-flash)
+        base_url: URL của Gemini OpenAI compatibility API
+        api_key: Gemini API key
+        temperature: Temperature cho generation (0.0 - 1.0)
+        timeout: Timeout cho requests (giây)
+            max_tokens: Default max tokens for responses
         """
         self.model = model
-        self.base_url = base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        self.base_url = base_url or os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.temperature = temperature
         self.timeout = timeout
+        self.max_tokens = max_tokens
+
+        if not self.api_key:
+            raise ValueError("GEMINI_API_KEY must be provided")
 
         # Khởi tạo LLM
-        self._llm = ChatOllama(
+        model_kwargs = {}
+        if max_tokens is not None:
+            model_kwargs["max_tokens"] = max_tokens
+
+        self._llm = ChatOpenAI(
             model=self.model,
             base_url=self.base_url,
+            api_key=self.api_key,
             temperature=self.temperature,
             timeout=self.timeout,
+            **model_kwargs,
         )
 
         # Khởi tạo prompt template
@@ -115,10 +130,6 @@ Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh k
             if temperature is not None:
                 original_temp = self._llm.temperature
                 self._llm.temperature = temperature
-
-            # Override max_tokens nếu được cung cấp
-            if max_tokens is not None:
-                self._llm.num_predict = max_tokens
 
             logger.info(f"Generating answer for question: '{question[:100]}...'")
             logger.debug(f"Context length: {len(context)} characters")
@@ -208,9 +219,6 @@ Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh k
                 original_temp = self._llm.temperature
                 self._llm.temperature = temperature
 
-            if max_tokens is not None:
-                self._llm.num_predict = max_tokens
-
             response = self._llm.invoke(prompt)
             
             if temperature is not None:
@@ -238,17 +246,15 @@ Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh k
 
     def get_available_models(self) -> List[str]:
         """
-        Lấy danh sách models có sẵn từ Ollama
-        
+        Lấy danh sách models có sẵn từ Gemini (static list)
+
         Returns:
             List tên models
         """
-        try:
-            import requests
-            response = requests.get(f"{self.base_url}/api/tags")
-            response.raise_for_status()
-            models = response.json().get("models", [])
-            return [model["name"] for model in models]
-        except Exception as e:
-            logger.error(f"Failed to fetch available models: {str(e)}")
-            return []
+        # Static list of available Gemini models via OpenAI compatibility
+        return [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+        ]

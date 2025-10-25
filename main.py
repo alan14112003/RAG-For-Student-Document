@@ -58,10 +58,12 @@ def get_llm_service_instance() -> LLMService:
     global llm_service
     if llm_service is None:
         llm_service = LLMService(
-            model=os.getenv("LLM_MODEL", "llama3"),
-            base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            model=os.getenv("LLM_MODEL", "gemini-2.0-flash"),
+            base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"),
+            api_key=os.getenv("GEMINI_API_KEY", "AIzaSyB0sLugsHA3a5yBAQOTC4z0SqZZfg0PqVA"),
             temperature=float(os.getenv("LLM_TEMPERATURE", "0.1")),
             timeout=int(os.getenv("LLM_TIMEOUT", "120")),
+            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "1000")) if os.getenv("LLM_MAX_TOKENS") else None,
         )
     return llm_service
 
@@ -84,16 +86,16 @@ async def lifespan(app: FastAPI):
     # Initialize LLM service
     llm = get_llm_service_instance()
     logger.info(f"LLM service initialized (model={llm.model}, base_url={llm.base_url})")
-    
+
     # Log available models
     try:
         available_models = llm.get_available_models()
         if available_models:
-            logger.info(f"Available Ollama models: {', '.join(available_models)}")
+            logger.info(f"Available Gemini models: {', '.join(available_models)}")
         else:
-            logger.warning("Could not fetch available Ollama models")
+            logger.warning("Could not fetch available Gemini models")
     except Exception as e:
-        logger.warning(f"Failed to fetch Ollama models: {e}")
+        logger.warning(f"Failed to fetch Gemini models: {e}")
 
     # Initialize MinIO service
     get_minio_service_instance()

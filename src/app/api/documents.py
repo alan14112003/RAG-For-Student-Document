@@ -553,7 +553,6 @@ async def search_documents(
             detail=f"Search failed: {str(e)}"
         )
 
-# Thêm endpoint mới
 @router.post(
     "/query",
     response_model=QueryResponse,

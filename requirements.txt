@@ -19,8 +19,9 @@ bcrypt
 langchain
 langchain-core
 langchain-community
-langchain-ollama
+langchain-openai
 qdrant-client
+sentence-transformers
 
 # Document Processing
 pypdf

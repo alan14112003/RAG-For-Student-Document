@@ -35,3 +35,6 @@ minio
 # Utilities
 python-dotenv
 aiofiles
+
+# Testing
+pytest

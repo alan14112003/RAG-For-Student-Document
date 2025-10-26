@@ -48,7 +48,7 @@ class DocumentInfo:
 class QueryWithLLMResult:
     """Kết quả query với LLM answer"""
     query: str
-    answer: str
+    answer: Dict[str, Any]
     sources: List[Dict[str, Any]]
     context_used: str
     model: str
@@ -476,9 +476,13 @@ class RagService:
         
         if not results:
             logger.warning(f"No relevant chunks found for question: '{question}'")
+            fallback_message = (
+                "Xin loi, toi chua tim thay thong tin lien quan trong tai lieu de tra loi cau hoi nay."
+            )
+            answer_payload = llm_service.build_answer_payload(fallback_message, [])
             return QueryWithLLMResult(
                 query=question,
-                answer="Xin lỗi, tôi không tìm thấy thông tin liên quan trong tài liệu để trả lời câu hỏi của bạn.",
+                answer=answer_payload,
                 sources=[],
                 context_used="",
                 model=llm_service.model,
@@ -491,8 +495,10 @@ class RagService:
         
         for idx, (doc, score) in enumerate(results, 1):
             metadata = doc.metadata or {}
-            
+            source_id = f"S{idx}"
+
             source_info = {
+                "source_id": source_id,
                 "chunk_index": metadata.get("chunk_index", 0),
                 "document_id": metadata.get("document_id", "unknown"),
                 "file_name": metadata.get("file_name", "unknown"),
@@ -500,13 +506,14 @@ class RagService:
                 "score": float(score),
                 "start_char": metadata.get("start_char", 0),
                 "end_char": metadata.get("end_char", 0),
+                "source_path": metadata.get("source"),
             }
             sources.append(source_info)
             
             # Format cho context
             context_parts.append(
-                f"[Nguồn {idx} - {source_info['file_name']} "
-                f"(độ liên quan: {score:.2f})]\n{doc.page_content}"
+                f"[Nguon {source_id} - {source_info['file_name']} "
+                f"(Do lien quan: {score:.2f})]\n{doc.page_content}"
             )
         
         context = "\n\n---\n\n".join(context_parts)
@@ -523,10 +530,15 @@ class RagService:
             )
             
             logger.info("LLM answer generated successfully")
+
+            answer_payload = llm_service.build_answer_payload(
+                llm_response.answer,
+                sources,
+            )
             
             return QueryWithLLMResult(
                 query=question,
-                answer=llm_response.answer,
+                answer=answer_payload,
                 sources=sources,
                 context_used=context,
                 model=llm_response.model,
@@ -536,3 +548,5 @@ class RagService:
         except Exception as e:
             logger.error(f"Failed to generate LLM answer: {str(e)}", exc_info=True)
             raise ValueError(f"Failed to generate answer: {str(e)}")
+
+

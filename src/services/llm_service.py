@@ -258,3 +258,52 @@ Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh k
             "gemini-1.5-pro",
             "gemini-1.5-flash",
         ]
+
+    def build_answer_payload(self, answer_text: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Compose a JSON-friendly payload that pairs the raw answer with detailed source references.
+
+        Args:
+            answer_text: The natural-language answer returned by the LLM.
+            sources: List of chunk metadata dictionaries returned from the retriever.
+
+        Returns:
+            Dictionary containing the answer content plus a `references` array.
+        """
+        references: List[Dict[str, Any]] = []
+
+        for idx, source in enumerate(sources, start=1):
+            source_id = source.get("source_id") or f"S{idx}"
+            file_name = source.get("file_name", "unknown")
+            document_id = source.get("document_id", "unknown")
+            chunk_index = source.get("chunk_index", 0)
+            score = float(source.get("score", 0.0))
+            snippet = source.get("content", "")
+            start_char = source.get("start_char", 0)
+            end_char = source.get("end_char", 0)
+            source_path = source.get("source_path")
+
+            explanation = (
+                f"Trich tu {file_name}, chunk #{chunk_index} "
+                f"(ky tu {start_char}-{end_char})"
+            )
+
+            references.append(
+                {
+                    "source_id": source_id,
+                    "document_id": document_id,
+                    "file_name": file_name,
+                    "chunk_index": chunk_index,
+                    "score": score,
+                    "snippet": snippet,
+                    "start_char": start_char,
+                    "end_char": end_char,
+                    "source_path": source_path,
+                    "explanation": explanation,
+                }
+            )
+
+        return {
+            "content": answer_text.strip(),
+            "references": references,
+        }

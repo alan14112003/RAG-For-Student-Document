@@ -92,6 +92,7 @@ class HighlightResponse(BaseModel):
 
 
 class SourceChunk(BaseModel):
+    source_id: str
     document_id: str
     file_name: str
     chunk_index: int
@@ -99,6 +100,7 @@ class SourceChunk(BaseModel):
     score: float
     start_char: int
     end_char: int
+    source_path: Optional[str] = None
 
 
 class QueryRequest(BaseModel):
@@ -109,9 +111,27 @@ class QueryRequest(BaseModel):
     max_tokens: int = Field(10000, ge=1, le=20000)
 
 
+class AnswerReference(BaseModel):
+    source_id: str
+    document_id: str
+    file_name: str
+    chunk_index: int
+    score: float
+    snippet: str
+    start_char: int
+    end_char: int
+    source_path: Optional[str] = None
+    explanation: Optional[str] = None
+
+
+class AnswerValue(BaseModel):
+    content: str
+    references: List[AnswerReference] = Field(default_factory=list)
+
+
 class QueryResponse(BaseModel):
     query: str
-    answer: str
+    answer: AnswerValue
     sources: List[SourceChunk] = Field(default_factory=list)
     context_used: str
     model: str

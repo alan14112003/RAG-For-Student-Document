@@ -596,6 +596,7 @@ async def query_documents(
         # Convert sources sang SourceChunk schema
         sources = [
             SourceChunk(
+                source_id=source["source_id"],
                 document_id=source["document_id"],
                 file_name=source["file_name"],
                 chunk_index=source["chunk_index"],
@@ -603,6 +604,7 @@ async def query_documents(
                 score=source["score"],
                 start_char=source["start_char"],
                 end_char=source["end_char"],
+                source_path=source.get("source_path"),
             )
             for source in result.sources
         ]

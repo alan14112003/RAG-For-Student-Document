@@ -158,6 +158,7 @@ async def upload_document(
     
     # Object path: user_id/timestamp_uniqueid_filename.ext
     minio_object_name = f"{current_user.id}/{timestamp}_{unique_id}_{safe_filename}{file_ext}"
+    markdown_object_name = f"{minio_object_name}.md"
     
     # 5. Create temporary file for RAG processing
     temp_dir = Path("data/temp") / current_user.id
@@ -182,16 +183,32 @@ async def upload_document(
         logger.info(f"File uploaded to MinIO: {minio_object_name}")
         
         # 8. Process with RAG service
+        ingest_metadata = {
+            "mime_type": file.content_type,
+            "original_filename": file.filename,
+            "minio_object": minio_object_name,
+            "minio_bucket": minio_service.bucket_name,
+            "markdown_object": markdown_object_name,
+            "markdown_content_type": "text/markdown",
+        }
+
         summary = await rag_service.ingest_file(
             user_id=current_user.id,
             file_path=temp_file,
-            metadata={
-                "mime_type": file.content_type,
-                "original_filename": file.filename,
-                "minio_object": minio_object_name,
-                "minio_bucket": minio_service.bucket_name,
-            }
+            metadata=ingest_metadata,
         )
+
+        markdown_content = summary.document_info.full_content or ""
+        markdown_bytes = markdown_content.encode("utf-8")
+
+        minio_service.upload_fileobj(
+            file_data=io.BytesIO(markdown_bytes),
+            object_name=markdown_object_name,
+            length=len(markdown_bytes),
+            content_type="text/markdown",
+        )
+        
+        logger.info(f"Markdown content uploaded to MinIO: {markdown_object_name}")
         
         logger.info(
             f"Document processed: {summary.document_info.document_id}, "
@@ -206,7 +223,7 @@ async def upload_document(
             file_path=minio_object_name,  # Store MinIO object path
             file_size=file_size,
             mime_type=file.content_type,
-            full_content=summary.document_info.full_content,
+            full_content="",
             content_length=summary.document_info.content_length,
             chunk_count=summary.chunk_count,
             collection_name=summary.collection_name,
@@ -215,6 +232,7 @@ async def upload_document(
                 "storage": "minio",
                 "bucket": minio_service.bucket_name,
                 "object_name": minio_object_name,
+                "markdown_object": markdown_object_name,
             },
         )
         
@@ -264,6 +282,14 @@ async def upload_document(
                 logger.info(f"Cleaned up MinIO object: {minio_object_name}")
         except Exception as cleanup_error:
             logger.error(f"Failed to cleanup MinIO: {cleanup_error}")
+
+        # Cleanup markdown object if uploaded
+        try:
+            if minio_service.file_exists(markdown_object_name):
+                minio_service.delete_file(markdown_object_name)
+                logger.info(f"Cleaned up MinIO markdown object: {markdown_object_name}")
+        except Exception as cleanup_error:
+            logger.error(f"Failed to cleanup Markdown object in MinIO: {cleanup_error}")
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -330,6 +356,7 @@ async def get_document(
     document_id: str,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
+    minio_service: MinIOService = Depends(get_minio_service),
 ):
     """Lấy chi tiết tài liệu với tất cả chunks"""
     
@@ -357,6 +384,27 @@ async def get_document(
     chunks = chunks_result.scalars().all()
     
     logger.info(f"Document {document_id} has {len(chunks)} chunks")
+
+    metadata = document.additional_metadata or {}
+    markdown_object = metadata.get("markdown_object")
+    full_content = document.full_content or ""
+
+    if markdown_object:
+        try:
+            markdown_bytes = minio_service.get_object_bytes(markdown_object)
+            full_content = markdown_bytes.decode("utf-8")
+        except Exception as e:
+            logger.error(
+                "Failed to fetch markdown content for document %s: %s",
+                document_id,
+                e,
+            )
+            # Fall back to any stored full_content (legacy data)
+    elif not full_content:
+        logger.debug(
+            "No markdown object metadata found for document %s; returning stored content",
+            document_id,
+        )
     
     return DocumentDetailResponse(
         id=document.id,
@@ -370,7 +418,7 @@ async def get_document(
         metadata=document.additional_metadata,
         created_at=document.created_at,
         updated_at=document.updated_at,
-        full_content=document.full_content,
+        full_content=full_content,
         chunks=chunks,
     )
 

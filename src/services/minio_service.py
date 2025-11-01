@@ -166,6 +166,33 @@ class MinIOService:
         except S3Error as e:
             logger.error(f"Failed to download file from MinIO: {e}")
             raise
+
+    def get_object_bytes(self, object_name: str) -> bytes:
+        """
+        Read entire object content into memory.
+
+        Args:
+            object_name: Tên object trong MinIO
+
+        Returns:
+            Raw bytes của object
+        """
+        try:
+            response = self.client.get_object(
+                bucket_name=self.bucket_name,
+                object_name=object_name,
+            )
+            try:
+                data = response.read()
+            finally:
+                response.close()
+                response.release_conn()
+
+            logger.debug(f"Fetched object bytes from MinIO: {object_name}")
+            return data
+        except S3Error as e:
+            logger.error(f"Failed to fetch object bytes from MinIO: {e}")
+            raise
     
     def get_file_url(
         self,

@@ -9,6 +9,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 
+from src.services.text_utils import ensure_markdown
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,15 +26,18 @@ class LLMResponse:
 class LLMService:
     """Service để tương tác với Gemini LLM models via OpenAI compatibility"""
 
-    DEFAULT_SYSTEM_PROMPT = """Bạn là một trợ lý AI thông minh và hữu ích. Nhiệm vụ của bạn là trả lời câu hỏi dựa trên ngữ cảnh được cung cấp.
+    DEFAULT_SYSTEM_PROMPT = """
+Ban la mot tro ly AI thong minh va huu ich. Nhiem vu cua ban la tra loi cau hoi dua tren ngu canh duoc cung cap.
 
-Hướng dẫn:
-1. Chỉ sử dụng thông tin từ ngữ cảnh được cung cấp để trả lời
-2. ***Nếu câu trả lời không có trong ngữ cảnh, hãy nói rõ ràng rằng bạn không tìm thấy thông tin***
-3. Trích dẫn nguồn khi có thể (ví dụ: "Theo tài liệu X...")
-4. Trả lời bằng tiếng Việt một cách rõ ràng và mạch lạc
-5. Nếu có nhiều nguồn cung cấp thông tin khác nhau, hãy tổng hợp chúng
-6. ***Đừng bịa đặt thông tin không có trong ngữ cảnh***"""
+Huong dan:
+1. Chi su dung thong tin tu ngu canh duoc cung cap de tra loi
+2. ***Neu cau tra loi khong co trong ngu canh, hay noi ro rang rang ban khong tim thay thong tin***
+3. Trich dan nguon khi co the (vi du: "Theo tai lieu X...")
+4. Tra loi bang tieng Viet mot cach ro rang va mach lac
+5. Neu co nhieu nguon cung cap thong tin khac nhau, hay tong hop chung
+6. ***Dung bo sung thong tin khong co trong ngu canh***
+7. Dinh dang cau tra loi bang Markdown (tieu de, danh sach)
+"""
 
     RAG_PROMPT_TEMPLATE = """Ngữ cảnh từ tài liệu:
 {context}
@@ -300,10 +305,13 @@ Hãy trả lời câu hỏi dựa trên ngữ cảnh trên. Nếu ngữ cảnh k
                     "end_char": end_char,
                     "source_path": source_path,
                     "explanation": explanation,
+                    "content_format": "markdown",
                 }
             )
 
+        markdown_answer = ensure_markdown(answer_text, prefer_title=False)
+
         return {
-            "content": answer_text.strip(),
+            "content": markdown_answer,
             "references": references,
         }

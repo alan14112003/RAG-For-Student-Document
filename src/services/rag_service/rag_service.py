@@ -17,6 +17,7 @@ from qdrant_client.http import models as qdrant_models
 from src.services.llm_service import LLMService
 from src.services.rag_service.converter import ConverterFactory
 from src.services.rag_service.qdrant_storage.qdrant_storage import QdrantStorage
+from src.services.text_utils import ensure_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,20 @@ class RagService:
         if not documents:
             raise ValueError(f"No content extracted from {file_path}")
 
+        raw_metadata: Dict[str, Any] = dict(metadata or {})
+        raw_metadata.setdefault("content_format", "markdown")
+
+        for idx, doc in enumerate(documents):
+            doc.page_content = ensure_markdown(
+                doc.page_content,
+                source_name=file_path.name,
+                prefer_title=(idx == 0),
+            )
+            doc.metadata = doc.metadata or {}
+            doc.metadata.update(raw_metadata)
+
+        sanitized_metadata = self._sanitize_metadata(raw_metadata)
+
         # Ghép nội dung đầy đủ
         full_content = "\n\n".join([doc.page_content for doc in documents])
         logger.debug("Extracted %d documents, total length: %d chars", 
@@ -259,9 +274,11 @@ class RagService:
                 "end_char": end_char,
             }
             
-            if metadata:
-                chunk_meta.update(self._sanitize_metadata(metadata))
+            if sanitized_metadata:
+                chunk_meta.update(sanitized_metadata)
             
+            chunk_meta.setdefault("content_format", "markdown")
+
             chunk.metadata = chunk_meta
 
             chunk_info = ChunkInfo(
@@ -288,7 +305,7 @@ class RagService:
             full_content=full_content,
             content_length=len(full_content),
             chunks=chunk_infos,
-            metadata=self._sanitize_metadata(metadata) if metadata else {},
+            metadata=sanitized_metadata,
             created_at=datetime.now()
         )
 
@@ -373,6 +390,7 @@ class RagService:
                 "content": doc.page_content,
                 "score": score,
                 "file_name": doc.metadata.get("file_name"),
+                "content_format": "markdown",
             })
         
         # Sắp xếp theo score
@@ -477,7 +495,8 @@ class RagService:
         if not results:
             logger.warning(f"No relevant chunks found for question: '{question}'")
             fallback_message = (
-                "Xin loi, toi chua tim thay thong tin lien quan trong tai lieu de tra loi cau hoi nay."
+                "### Xin loi\n\n"
+                "Toi chua tim thay thong tin lien quan trong tai lieu de tra loi cau hoi nay."
             )
             answer_payload = llm_service.build_answer_payload(fallback_message, [])
             return QueryWithLLMResult(
@@ -507,13 +526,14 @@ class RagService:
                 "start_char": metadata.get("start_char", 0),
                 "end_char": metadata.get("end_char", 0),
                 "source_path": metadata.get("source"),
+                "content_format": "markdown",
             }
             sources.append(source_info)
             
             # Format cho context
             context_parts.append(
-                f"[Nguon {source_id} - {source_info['file_name']} "
-                f"(Do lien quan: {score:.2f})]\n{doc.page_content}"
+                f"### Nguon {source_id} - {source_info['file_name']} "
+                f"(Do lien quan: {score:.2f})\n{doc.page_content}"
             )
         
         context = "\n\n---\n\n".join(context_parts)

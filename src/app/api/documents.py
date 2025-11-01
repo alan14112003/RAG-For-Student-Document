@@ -525,6 +525,7 @@ async def search_documents(
                     content=chunk["content"],
                     score=chunk["score"],
                     file_name=chunk["file_name"],
+                    content_format=chunk.get("content_format", "markdown"),
                 )
                 for chunk in chunks
             ]
@@ -605,6 +606,7 @@ async def query_documents(
                 start_char=source["start_char"],
                 end_char=source["end_char"],
                 source_path=source.get("source_path"),
+                content_format=source.get("content_format", "markdown"),
             )
             for source in result.sources
         ]

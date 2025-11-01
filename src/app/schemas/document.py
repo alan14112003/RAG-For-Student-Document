@@ -9,6 +9,7 @@ class ChunkResponse(BaseModel):
     content: str
     start_char: int
     end_char: int
+    content_format: str = "markdown"
     metadata: Optional[Dict[str, Any]] = Field(default=None, alias="additional_metadata")
 
     class Config:
@@ -65,6 +66,7 @@ class SearchResultChunk(BaseModel):
     content: str
     score: float
     file_name: str
+    content_format: str = "markdown"
 
 
 class SearchResultDocument(BaseModel):
@@ -101,6 +103,7 @@ class SourceChunk(BaseModel):
     start_char: int
     end_char: int
     source_path: Optional[str] = None
+    content_format: str = "markdown"
 
 
 class QueryRequest(BaseModel):
@@ -122,6 +125,7 @@ class AnswerReference(BaseModel):
     end_char: int
     source_path: Optional[str] = None
     explanation: Optional[str] = None
+    content_format: str = "markdown"
 
 
 class AnswerValue(BaseModel):

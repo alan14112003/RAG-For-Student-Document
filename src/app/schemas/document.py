@@ -139,3 +139,5 @@ class QueryResponse(BaseModel):
     sources: List[SourceChunk] = Field(default_factory=list)
     context_used: str
     model: str
+    message_id: Optional[int] = Field(None, description="ID of saved user message")
+    response_message_id: Optional[int] = Field(None, description="ID of saved assistant response")

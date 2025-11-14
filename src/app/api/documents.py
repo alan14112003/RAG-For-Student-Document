@@ -29,6 +29,7 @@ from src.app.utils.auth import get_current_active_user
 from src.services.minio_service import MinIOService
 from src.services.rag_service.rag_service import RagService
 from src.services.llm_service import LLMService
+from src.services.chat_service import ChatService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -42,6 +43,7 @@ _rag_service_provider: Optional[Callable[[], RagService]] = None
 _minio_service_provider: Optional[Callable[[], MinIOService]] = None
 # Thêm dependency cho LLM service
 _llm_service_provider: Optional[Callable[[], LLMService]] = None
+_chat_service_provider: Optional[Callable[[], ChatService]] = None
 
 
 def set_rag_service_provider(provider: Callable[[], RagService]) -> None:
@@ -59,6 +61,12 @@ def set_llm_service_provider(provider: Callable[[], LLMService]) -> None:
     """Register the callable that supplies the LLM service instance."""
     global _llm_service_provider
     _llm_service_provider = provider
+
+
+def set_chat_service_provider(provider: Callable[[], ChatService]) -> None:
+    """Register the callable that supplies the Chat service instance."""
+    global _chat_service_provider
+    _chat_service_provider = provider
 
 
 def get_llm_service() -> LLMService:
@@ -89,6 +97,16 @@ def get_minio_service() -> MinIOService:
     service = _minio_service_provider()
     if service is None:
         raise RuntimeError("Configured MinIO service provider returned None")
+    return service
+
+
+def get_chat_service() -> ChatService:
+    """Dependency để lấy Chat service instance."""
+    if _chat_service_provider is None:
+        raise RuntimeError("Chat service provider has not been configured")
+    service = _chat_service_provider()
+    if service is None:
+        raise RuntimeError("Configured Chat service provider returned None")
     return service
 
 
@@ -614,6 +632,7 @@ async def query_documents(
     db: AsyncSession = Depends(get_db),
     rag_service: RagService = Depends(get_rag_service),
     llm_service: LLMService = Depends(get_llm_service),
+chat_service: ChatService = Depends(get_chat_service),
 ):
     """
     Query với RAG + LLM để trả lời câu hỏi
@@ -663,13 +682,45 @@ async def query_documents(
             f"Query completed: {result.retrieved_chunks} chunks retrieved, "
             f"answer length: {len(result.answer)} chars"
         )
-        
+
+        # Lưu chat history
+        message_id = None
+        response_message_id = None
+
+        try:
+        # Lưu câu hỏi của user
+            user_message = await chat_service.save_user_message(
+                db=db,
+                user_id=current_user.id,
+                question=query_data.query
+            )
+            message_id = user_message.id
+
+            # Lưu câu trả lời của assistant
+            # Extract content từ answer dict
+            answer_content = result.answer.get("content", "") if isinstance(result.answer, dict) else str(result.answer)
+            assistant_message = await chat_service.save_assistant_response(
+                db=db,
+                user_id=current_user.id,
+                response=answer_content,
+                model_used=result.model
+            )
+            response_message_id = assistant_message.id
+
+            logger.info(f"Saved chat history for user {current_user.id}: message_id={message_id}, response_id={response_message_id}")
+
+        except Exception as e:
+        logger.error(f"Failed to save chat history: {str(e)}", exc_info=True)
+        # Không raise exception để không phá vỡ query functionality
+
         return QueryResponse(
             query=result.query,
             answer=result.answer,
             sources=sources,
             context_used=result.context_used,
             model=result.model,
+            message_id=message_id,
+            response_message_id=response_message_id,
         )
     
     except Exception as e:

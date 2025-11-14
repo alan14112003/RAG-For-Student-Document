@@ -7,10 +7,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.services.llm_service import LLMService
+from src.services.chat_service import ChatService
 from src.app.models.base import engine
 from src.app.models.base import Base
 from src.app.api.auth import router as auth_router
 from src.app.api.documents import router as documents_router
+from src.app.api.chat import router as chat_router
 from src.services.rag_service.rag_service import RagService
 from src.services.minio_service import MinIOService
 
@@ -22,6 +24,7 @@ logger = logging.getLogger(__name__)
 rag_service: Optional[RagService] = None
 minio_service: Optional[MinIOService] = None
 llm_service: Optional[LLMService] = None
+chat_service: Optional[ChatService] = None
 
 def get_rag_service_instance() -> RagService:
     """Get the singleton RAG service instance"""
@@ -58,14 +61,22 @@ def get_llm_service_instance() -> LLMService:
     global llm_service
     if llm_service is None:
         llm_service = LLMService(
-            model=os.getenv("LLM_MODEL", "gemini-2.0-flash"),
-            base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"),
-            api_key=os.getenv("GEMINI_API_KEY", "AIzaSyB0sLugsHA3a5yBAQOTC4z0SqZZfg0PqVA"),
-            temperature=float(os.getenv("LLM_TEMPERATURE", "0.1")),
-            timeout=int(os.getenv("LLM_TIMEOUT", "120")),
-            max_tokens=int(os.getenv("LLM_MAX_TOKENS", "1000")) if os.getenv("LLM_MAX_TOKENS") else None,
+        model=os.getenv("LLM_MODEL", "gemini-2.0-flash"),
+        base_url=os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai"),
+        api_key=os.getenv("GEMINI_API_KEY", "AIzaSyB0sLugsHA3a5yBAQOTC4z0SqZZfg0PqVA"),
+        temperature=float(os.getenv("LLM_TEMPERATURE", "0.1")),
+        timeout=int(os.getenv("LLM_TIMEOUT", "120")),
+        max_tokens=int(os.getenv("LLM_MAX_TOKENS", "1000")) if os.getenv("LLM_MAX_TOKENS") else None,
         )
     return llm_service
+
+
+def get_chat_service_instance() -> ChatService:
+    """Get the singleton Chat service instance"""
+    global chat_service
+    if chat_service is None:
+        chat_service = ChatService()
+    return chat_service
 
 
 @asynccontextmanager
@@ -141,16 +152,19 @@ def configure_cors(application: FastAPI) -> None:
 configure_cors(app)
 
 
-# Override the dependency in documents router to use singleton
-from src.app.api import documents
+# Override the dependency in routers to use singleton
+from src.app.api import documents, chat
 documents.set_rag_service_provider(get_rag_service_instance)
 documents.set_llm_service_provider(get_llm_service_instance)
 documents.set_minio_service_provider(get_minio_service_instance)
+documents.set_chat_service_provider(get_chat_service_instance)
+chat.set_chat_service_provider(get_chat_service_instance)
 
 
 # Include routers
 app.include_router(auth_router)
 app.include_router(documents_router)
+app.include_router(chat_router)
 
 
 @app.get("/", tags=["Health"])

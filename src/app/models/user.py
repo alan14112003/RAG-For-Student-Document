@@ -24,3 +24,6 @@ class User(Base):
     documents: Mapped[list["Document"]] = relationship(
         "Document", back_populates="user", cascade="all, delete-orphan"
     )
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(
+        "ChatSession", back_populates="user", cascade="all, delete-orphan"
+    )
